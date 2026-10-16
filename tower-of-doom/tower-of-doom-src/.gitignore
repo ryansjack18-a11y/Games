@@ -1,0 +1,7 @@
+# Test output
+tests/shots/
+tests/gallery.html
+lint/game.js
+node_modules/
+tests/characters/
+tests/artifact-harness/*.pid

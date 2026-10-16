@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tower of Doom</title>
+<meta name="description" content="A fan-made replica of Blooket's Tower of Doom: draft Blook cards, climb 3 levels, and defeat the Evil King.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<style>
+/*__CSS__*/
+</style>
+<script>
+/* Boot guard (ES5 on purpose): marks that JavaScript runs, and shows a visible
+   message instead of dead buttons if the game code fails to start. */
+(function () {
+  var root = document.documentElement;
+  root.className = root.className.replace('no-js', 'js');
+  // Fonts load without blocking the page; the CSS has fallback fonts.
+  var font = document.createElement('link');
+  font.rel = 'stylesheet';
+  font.href = 'https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Titan+One&display=swap';
+  document.head.appendChild(font);
+  function banner(msg) {
+    var el = document.getElementById('bootError');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bootError';
+      el.setAttribute('role', 'alert');
+      el.title = 'Tap to dismiss';
+      el.onclick = function () { el.parentNode.removeChild(el); };
+      (document.body || root).appendChild(el);
+    }
+    el.textContent = '\u26a0\ufe0f ' + msg;
+  }
+  var lastError = '';
+  window.__todBootError = banner;
+  window.addEventListener('error', function (e) {
+    lastError = e && e.message ? e.message : 'unknown error';
+    banner('Something went wrong: ' + lastError + '. Try reloading, or open the file in Chrome, Safari or Edge.');
+  });
+  window.addEventListener('load', function () {
+    if (window.__TOD) return;
+    banner(lastError
+      ? 'The game could not start (' + lastError + '). Try opening this file in Chrome, Safari or Edge.'
+      : 'The game could not start here. Open this file in a web browser such as Chrome, Safari or Edge.');
+  });
+})();
+</script>
+</head>
+<body>
+<div id="app">
+  <header id="hud"></header>
+
+  <section id="title" class="screen active" aria-label="Title screen">
+    <div class="title-blobs" id="titleBlobs"></div>
+    <h1 class="logo"><span class="logo-text">Tower<span>of Doom</span></span><span id="logoWrap"></span></h1>
+    <p class="tagline">Draft a team of Blooks, climb 3 levels of monsters, and take down the Evil King at the top!</p>
+    <div class="nojs-msg" role="alert">
+      <h2>&#9888;&#65039; Open this in a web browser to play</h2>
+      <p>This app is only showing a <b>preview</b> of the game file. Previews can't run games, so the buttons won't work here.</p>
+      <ul>
+        <li><b>On a computer or Chromebook:</b> double-click the file, or open it with Chrome, Edge, Safari or Firefox.</li>
+        <li><b>On Android:</b> choose <b>Open with &rarr; Chrome</b> (not HTML Viewer), or use the play link.</li>
+        <li><b>On iPhone or iPad:</b> use the play link. iPhones can't run game files saved on the phone.</li>
+      </ul>
+    </div>
+    <div class="diff-row needs-js" id="diffRow" role="group" aria-label="Difficulty"></div>
+    <button class="btn big green needs-js" id="playBtn">Play</button>
+    <div class="title-links needs-js">
+      <button class="btn small blue" id="howBtn">How to Play</button>
+    </div>
+    <div class="best" id="bestLine"></div>
+  </section>
+
+  <section id="draft" class="screen" aria-label="Draft cards">
+    <h2 class="screen-title" id="draftTitle">Choose a Card</h2>
+    <p class="screen-sub" id="draftSub"></p>
+    <div class="card-row" id="draftCards"></div>
+    <div class="deck-strip" id="draftDeck"></div>
+  </section>
+
+  <section id="map" class="screen" aria-label="Tower map">
+    <h2 class="screen-title" id="mapTitle">The Tower</h2>
+    <p class="screen-sub" id="mapSub">Pick a room to climb to.</p>
+    <div class="map-legend" id="mapLegend"></div>
+    <div class="map-scroll"><div class="tower" id="tower"></div></div>
+  </section>
+
+  <section id="level" class="screen" aria-label="Level complete"></section>
+
+  <section id="battle" class="screen" aria-label="Battle">
+    <div class="battle-sky" id="battleSky" aria-hidden="true"></div>
+    <div class="arena">
+      <div class="fighter" id="pFighter">
+        <div class="fighter-name">You</div>
+        <div class="hpbar" id="pHp"><i></i><span></span></div>
+        <div class="fighter-blob" id="pBlob"></div>
+      </div>
+      <div class="vs">VS</div>
+      <div class="fighter" id="eFighter">
+        <div class="fighter-name" id="eName"></div>
+        <div class="hpbar enemy" id="eHp"><i></i><span></span></div>
+        <div class="fighter-blob" id="eBlob"></div>
+        <div class="enemy-tag" id="eTag"></div>
+      </div>
+    </div>
+    <div class="round-tag" id="roundTag"></div>
+    <div class="clash">
+      <div class="slot"><div class="slot-label">Your card</div><div id="pSlot"></div></div>
+      <div class="slot"><div class="slot-label">Enemy card</div><div id="eSlot"></div></div>
+    </div>
+    <div class="battle-msg" id="bMsg" aria-live="polite"></div>
+    <div id="actionBox"></div>
+    <div class="hand-label" id="handLabel"></div>
+    <div class="hand" id="hand"></div>
+  </section>
+
+  <section id="reward" class="screen" aria-label="Rewards"></section>
+  <section id="shop" class="screen" aria-label="Shop"></section>
+  <section id="rest" class="screen" aria-label="Rest stop"></section>
+  <section id="event" class="screen" aria-label="Mystery event"></section>
+  <section id="end" class="screen" aria-label="Game over"></section>
+</div>
+
+<div class="modal-bg" id="modalBg" role="dialog" aria-modal="true"><div class="modal" id="modal"></div></div>
+<div id="toast" role="status"></div>
+
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>
