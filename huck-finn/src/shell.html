@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>River to Cairo</title>
+<style>
+  /* ===== THEME (restyle freely) ===== */
+  :root {
+    --bg: #140e07; --panel: rgba(24, 15, 6, 0.92); --fg: #f4ead5; --muted: #c2b393;
+    --accent: #e9b44c; --danger: #d2573a; --ok: #9bd17a;
+    --controls-h: 0px; /* space reserved below the game for touch controls */
+    --aspect-w: 4; --aspect-h: 3; --max-w: 880px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; min-height: 100vh; min-height: 100dvh; padding: 12px; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+  /* Width is the smallest of: the viewport, the max width, and what still fits vertically.
+     Height follows from aspect-ratio, so the game never distorts or overflows. */
+  #game { position: relative; overflow: hidden; border-radius: 12px; background: #000;
+    width: min(100%, var(--max-w), calc((100dvh - 24px - var(--controls-h)) * var(--aspect-w) / var(--aspect-h)));
+    aspect-ratio: var(--aspect-w) / var(--aspect-h); box-shadow: 0 10px 40px rgba(0,0,0,.5); outline: none; }
+  #gl, #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #canvas { touch-action: none; cursor: grab; }
+
+  #hud { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+    align-items: center; gap: 8px; padding: 8px 12px; font-weight: 700; font-size: clamp(12px, 2.4vw, 18px);
+    pointer-events: none; text-shadow: 0 1px 2px #000; }
+  #hud .group { display: flex; gap: 14px; align-items: center; }
+  #hud button { pointer-events: auto; }
+
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 12px; padding: 16px; text-align: center; background: var(--panel); }
+  .screen[hidden], #hud[hidden], #debug[hidden] { display: none; }
+  .screen h1 { margin: 0; font-size: clamp(24px, 6vw, 48px); letter-spacing: .04em; color: var(--accent); }
+  .screen p { margin: 0; color: var(--muted); max-width: 46ch; font-size: clamp(12px, 2.2vw, 16px); }
+  .keys { display: grid; grid-template-columns: auto auto; gap: 3px 14px; font-size: clamp(11px, 2vw, 15px); text-align: left; }
+  kbd { background: #3a2a16; border: 1px solid #5c4526; border-bottom-width: 3px; border-radius: 5px; padding: 1px 6px; font-family: inherit; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .18em; font-size: clamp(10px, 1.8vw, 13px); color: var(--muted); }
+  .screen p.lead { color: var(--fg); }
+  #screen-story p { max-width: 54ch; }
+  #screen-menu { background: linear-gradient(rgba(24,15,6,.35), rgba(24,15,6,.78)); }
+  .big { font-size: clamp(28px, 7vw, 56px); font-weight: 800; color: var(--fg); }
+  .badge { color: var(--ok); font-weight: 700; }
+
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 10px; color: #001018; background: var(--accent);
+    padding: 10px 22px; font-weight: 800; font-size: clamp(14px, 2.6vw, 18px); }
+  button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+  button.ghost { background: transparent; color: var(--fg); border: 1px solid #5c4526; padding: 4px 10px; font-size: 14px; }
+  button[hidden] { display: none; }
+
+  /* Hidden until something crashes. */
+  #debug { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 10; padding: 10px 12px; border-radius: 8px;
+    background: rgba(40, 0, 12, .94); border: 1px solid var(--danger); color: #ffd6e2; font: 12px/1.4 ui-monospace, monospace; }
+  #debug strong { color: #fff; }
+  #debug .row { display: flex; gap: 8px; margin-top: 8px; }
+  #debug button { font-size: 12px; padding: 4px 10px; background: var(--danger); color: #fff; }
+
+  /* On-screen controls: shown on touch devices, hidden on mouse/keyboard devices. */
+  #touch { display: none; gap: 18px; align-items: center; justify-content: center; touch-action: none; }
+  #touch button { width: 54px; height: 54px; padding: 0; font-size: 22px; border-radius: 14px; background: #3a2a16; color: var(--fg); }
+  #touch button.active { background: var(--accent); color: #001018; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 54px); gap: 6px; }
+  .dpad [data-key="ArrowUp"] { grid-column: 2; } .dpad [data-key="ArrowLeft"] { grid-column: 1; grid-row: 2; }
+  .dpad [data-key="ArrowDown"] { grid-column: 2; grid-row: 2; } .dpad [data-key="ArrowRight"] { grid-column: 3; grid-row: 2; }
+  .acts { display: grid; grid-template-columns: repeat(2, 58px); grid-template-rows: repeat(2, 58px); gap: 6px; }
+  #touch .acts button { width: 58px; height: 58px; }
+  #touch .acts [data-key="Space"] { background: #8a4b1f; }
+  @media (hover: none) and (pointer: coarse) {
+    :root { --controls-h: 140px; }
+    #touch { display: flex; }
+    .desktop-only { display: none; }
+  }
+  /* Phones held sideways: float the controls over the game so it keeps the full height. */
+  @media (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+    :root { --controls-h: 0px; }
+    #touch { position: fixed; left: 0; right: 0; bottom: 6px; justify-content: space-between; padding: 0 10px; pointer-events: none; }
+    #touch > * { pointer-events: auto; opacity: .75; }
+  }
+  @media not all and (hover: none) and (pointer: coarse) { .touch-only { display: none; } }
+</style>
+</head>
+<body>
+<div id="game" tabindex="0" aria-label="Game area">
+  <canvas id="gl" aria-hidden="true"></canvas>
+  <canvas id="canvas" aria-hidden="true"></canvas>
+
+  <div id="hud" hidden>
+    <div class="group"><span id="hud-lives" aria-label="Location"></span></div>
+    <div class="group"><span>$<span id="hud-score">0</span></span><span>Best $<span id="hud-best">0</span></span>
+      <button class="ghost" id="btn-mute" aria-label="Toggle sound">🔊</button>
+      <button class="ghost" id="btn-pause" aria-label="Pause">❚❚</button></div>
+  </div>
+
+  <section class="screen" id="screen-menu">
+    <div class="eyebrow">An adventure down the Mississippi</div>
+    <h1>RIVER TO CAIRO</h1>
+    <p>Help Huck and Jim reach Cairo, Illinois. Dodge Pap, outwit the Duke and the King, keep Jim out of sight, and don't starve.</p>
+    <div class="keys desktop-only">
+      <span><kbd>WASD</kbd> / <kbd>←↑↓→</kbd></span><span>Move / steer the raft</span>
+      <span><kbd>Space</kbd> / <kbd>J</kbd></span><span>Attack (hold)</span>
+      <span><kbd>F</kbd></span><span>Special: Fib, Brace, Scheme</span>
+      <span><kbd>Q</kbd> or <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span>Switch character</span>
+      <span><kbd>E</kbd></span><span>Switch weapon</span>
+      <span>Drag / <kbd>Z</kbd> <kbd>C</kbd></span><span>Turn the camera</span>
+      <span><kbd>P</kbd> / <kbd>Esc</kbd></span><span>Pause</span>
+    </div>
+    <p class="touch-only">Move with the arrows and drag the view to turn the camera. The big button attacks; the other three use your special, swap characters and swap weapons.</p>
+    <button id="btn-start">Start the journey</button>
+    <p>Best: $<span id="menu-best">0</span></p>
+  </section>
+
+  <section class="screen" id="screen-story" hidden>
+    <div class="eyebrow" id="story-chapter"></div>
+    <h1 id="story-title"></h1>
+    <p class="lead" id="story-text"></p>
+    <p class="badge" id="story-new" hidden></p>
+    <p id="story-tip"></p>
+    <button id="btn-story">Continue</button>
+  </section>
+
+  <section class="screen" id="screen-pause" hidden>
+    <h1>Paused</h1>
+    <button id="btn-resume">Resume</button>
+    <button class="ghost" id="btn-quit">Quit to menu</button>
+  </section>
+
+  <section class="screen" id="screen-over" hidden>
+    <h1 id="over-title">Game Over</h1>
+    <div class="big">$<span id="over-score">0</span></div>
+    <p id="over-stats"></p>
+    <p>Best: $<span id="over-best">0</span> <span class="badge" id="over-new" hidden>★ New best!</span></p>
+    <button id="btn-retry">Retry this stage</button>
+    <button id="btn-restart">New journey</button>
+    <button class="ghost" id="btn-menu">Menu</button>
+  </section>
+
+  <div id="debug" role="alert" hidden>
+    <strong>Something went wrong — the game is paused.</strong>
+    <div id="debug-msg"></div>
+    <div class="row"><button id="debug-resume">Try to resume</button><button id="debug-reload">Reload game</button></div>
+  </div>
+</div>
+
+<div id="touch" aria-label="Touch controls">
+  <div class="dpad">
+    <button data-key="ArrowUp" aria-label="Up">▲</button>
+    <button data-key="ArrowLeft" aria-label="Left">◀</button>
+    <button data-key="ArrowDown" aria-label="Down">▼</button>
+    <button data-key="ArrowRight" aria-label="Right">▶</button>
+  </div>
+  <div class="acts">
+    <button data-key="Space" aria-label="Attack">⚔️</button>
+    <button data-key="KeyF" aria-label="Special">🗣️</button>
+    <button data-key="KeyQ" aria-label="Switch character">🔄</button>
+    <button data-key="KeyE" aria-label="Switch weapon">🔪</button>
+  </div>
+</div>
+
+<!-- Error guard lives in its own script tag so it is installed even if the main script
+     fails to parse. The main script registers window.__onCrash to pause its loop. -->
+<script>
+  (function () {
+    function show(err) {
+      try { if (window.__onCrash) window.__onCrash(); } catch (_) {}
+      var box = document.getElementById('debug');
+      var msg = document.getElementById('debug-msg');
+      if (!box || !msg) return;
+      var text = (err && (err.stack || err.message)) || String(err);
+      msg.textContent = String(text).split('\n').slice(0, 3).join(' | ');
+      box.hidden = false;
+    }
+    window.__showCrash = show;
+    window.onerror = function (message, source, line, col, err) {
+      show(err || new Error(message + ' (line ' + line + ':' + col + ')'));
+      return false; // keep the browser's own console logging
+    };
+    window.addEventListener('unhandledrejection', function (e) { show(e.reason); });
+  })();
+</script>
+
+/*__THREE__*/
+<script>
+(() => {
+  'use strict';
+
+  // ===== CONFIG =====
+  const W = 720, H = 540;            // logical resolution: all game code uses these units
+  const STEP = 1 / 60;               // fixed simulation step in seconds
+  const MAX_FRAME = 0.25;            // clamp long frames (tab switch, breakpoint) to avoid a spiral of death
+  const GAME_ID = 'river-to-cairo';  // namespace for localStorage keys
+  const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ===== DOM =====
+  const $ = (s) => document.querySelector(s);
+  const gameEl = $('#game'), canvas = $('#canvas'), ctx = canvas.getContext('2d');
+  const screens = { menu: $('#screen-menu'), story: $('#screen-story'), paused: $('#screen-pause'), over: $('#screen-over') };
+
+  // ===== STORAGE (throws in some sandboxed iframes / private modes, so always guard) =====
+  const store = {
+    get(key, fallback) {
+      try { const v = localStorage.getItem(GAME_ID + ':' + key); return v === null ? fallback : JSON.parse(v); }
+      catch (_) { return fallback; }
+    },
+    set(key, value) { try { localStorage.setItem(GAME_ID + ':' + key, JSON.stringify(value)); } catch (_) {} },
+  };
+  let best = Number(store.get('best', 0)) || 0;
+
+  // ===== AUDIO (Web Audio synth; the context must be created/resumed inside a user gesture) =====
+  const audio = (() => {
+    let ac = null, master = null, muted = !!store.get('muted', false);
+    function unlock() {
+      try {
+        if (!ac) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return null;
+          ac = new AC(); master = ac.createGain(); master.gain.value = 0.2; master.connect(ac.destination);
+        }
+        if (ac.state === 'suspended') ac.resume();
+      } catch (_) { ac = null; }
+      return ac;
+    }
+    // One enveloped oscillator blip. Exponential ramps avoid audible clicks.
+    function tone({ freq = 440, to = 0, dur = 0.1, type = 'square', vol = 0.6, delay = 0 } = {}) {
+      if (muted || !ac) return;
+      try {
+        const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.05);
+      } catch (_) { /* audio must never crash the game */ }
+    }
+    return {
+      unlock, tone,
+      get muted() { return muted; },
+      toggle() { muted = !muted; store.set('muted', muted); return muted; },
+    };
+  })();
+  const arp = (notes, step, type, vol) => notes.forEach((f, i) => audio.tone({ freq: f, dur: step * 1.6, type, vol, delay: i * step }));
+  const sfx = {
+    start: () => { audio.tone({ freq: 330, to: 660, dur: 0.15, type: 'triangle' }); },
+    coin: () => { audio.tone({ freq: 988, dur: 0.07, vol: 0.4 }); audio.tone({ freq: 1318, dur: 0.12, vol: 0.4, delay: 0.06 }); },
+    eat: () => { audio.tone({ freq: 300, to: 520, dur: 0.1, type: 'triangle' }); audio.tone({ freq: 360, to: 600, dur: 0.1, type: 'triangle', delay: 0.11 }); },
+    tool: () => arp([523, 659, 784], 0.07, 'triangle', 0.5),
+    swing: () => { audio.tone({ freq: 420, to: 140, dur: 0.07, type: 'triangle', vol: 0.35 }); },
+    hit: () => { audio.tone({ freq: 190, to: 70, dur: 0.12, type: 'square', vol: 0.5 }); },
+    gun: () => { audio.tone({ freq: 700, to: 50, dur: 0.2, type: 'sawtooth', vol: 0.7 }); },
+    hurt: () => { audio.tone({ freq: 240, to: 70, dur: 0.28, type: 'sawtooth', vol: 0.6 }); },
+    block: () => { audio.tone({ freq: 760, to: 520, dur: 0.07, type: 'square', vol: 0.4 }); },
+    fib: () => { arp([440, 587, 523, 698], 0.07, 'sine', 0.5); },
+    swap: () => { audio.tone({ freq: 480, to: 760, dur: 0.08, type: 'triangle', vol: 0.4 }); },
+    splash: () => { audio.tone({ freq: 260, to: 90, dur: 0.18, type: 'triangle', vol: 0.5 }); },
+    thunder: () => { audio.tone({ freq: 80, to: 28, dur: 0.9, type: 'sawtooth', vol: 0.8, delay: 0.15 }); },
+    clear: () => arp([392, 523, 659, 784], 0.1, 'triangle', 0.5),
+    win: () => arp([392, 523, 659, 784, 659, 784, 1046], 0.13, 'triangle', 0.6),
+    over: () => { [440, 330, 220].forEach((f, i) => audio.tone({ freq: f, dur: 0.18, type: 'triangle', delay: i * 0.16 })); },
+  };
+
+  // ===== INPUT =====
+  // `held` answers "is this key down right now?" (continuous movement).
+  // `presses` is a short queue of discrete presses drained by update(), so taps between
+  // simulation steps are never lost and a burst of keys can't overflow the buffer.
+  const input = (() => {
+    const held = new Set(), presses = [], MAX_QUEUE = 4;
+    const ALIAS = { KeyW: 'ArrowUp', KeyA: 'ArrowLeft', KeyS: 'ArrowDown', KeyD: 'ArrowRight' };
+    const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End']);
+    let lastDevice = 'keyboard';
+    // Physical key code, falling back to e.key where e.code is empty or "Unidentified"
+    // (some WebViews, embedded previews, remote desktops and virtual keyboards).
+    function keyCode(e) {
+      if (e.code && e.code !== 'Unidentified') return e.code;
+      const k = e.key || '';
+      if (k === ' ' || k === 'Spacebar') return 'Space';
+      if (k === 'Esc') return 'Escape';
+      if (k === 'Up' || k === 'Down' || k === 'Left' || k === 'Right') return 'Arrow' + k;
+      if (/^[a-z]$/i.test(k)) return 'Key' + k.toUpperCase();
+      if (/^[0-9]$/.test(k)) return 'Digit' + k;
+      return k;
+    }
+    function down(code) {
+      if (!held.has(code) && presses.length < MAX_QUEUE) presses.push(code);
+      held.add(code);
+    }
+    function up(code) { held.delete(code); }
+    addEventListener('keydown', (e) => {
+      const raw = keyCode(e);
+      if (e.target instanceof HTMLButtonElement && (raw === 'Enter' || raw === 'Space')) return; // let buttons work
+      if (SCROLL_KEYS.has(raw)) e.preventDefault(); // stop the page from scrolling
+      lastDevice = 'keyboard';
+      const code = ALIAS[raw] || raw;
+      if (!e.repeat) { down(code); onCommandKey(code); }
+    });
+    addEventListener('keyup', (e) => { const raw = keyCode(e); up(ALIAS[raw] || raw); });
+    addEventListener('blur', () => held.clear()); // avoid "stuck" keys after alt-tab
+    // A pointer only "takes over" when it actually moves, so a mouse resting over the game
+    // never overrides the arrow keys in games that support both (aim with mouse OR keys).
+    addEventListener('pointermove', (e) => { if (e.movementX || e.movementY) lastDevice = 'pointer'; });
+    addEventListener('pointerdown', () => { lastDevice = 'pointer'; });
+
+    // On-screen buttons feed the same queue as the keyboard.
+    document.querySelectorAll('#touch [data-key]').forEach((btn) => {
+      const code = btn.dataset.key;
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); audio.unlock(); btn.setPointerCapture(e.pointerId);
+        btn.classList.add('active'); down(code);
+      });
+      const release = () => { btn.classList.remove('active'); up(code); };
+      btn.addEventListener('pointerup', release); btn.addEventListener('pointercancel', release);
+      btn.addEventListener('lostpointercapture', release);
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
+
+    return {
+      isDown: (...codes) => codes.some((c) => held.has(c)),
+      press: (code) => { if (presses.length < MAX_QUEUE) presses.push(code); }, // for swipes / custom buttons
+      drain: () => presses.splice(0, presses.length),
+      clear: () => { held.clear(); presses.length = 0; },
+      get lastDevice() { return lastDevice; }, // 'keyboard' | 'pointer': whichever was used last
+    };
+  })();
+
+  // Converts a pointer event to logical game coordinates (for click/tap-driven games).
+  function toGame(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+  }
+
+  // ===== CANVAS SIZING (crisp on high-DPI screens; game code always draws in W x H units) =====
+  function resize() {
+    const r = canvas.getBoundingClientRect();
+    if (!r.width) return;
+    const scale = (r.width / W) * (window.devicePixelRatio || 1);
+    canvas.width = Math.round(W * scale); canvas.height = Math.round(H * scale);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  }
+  new ResizeObserver(resize).observe(canvas);
+
+  // Inside an embedded preview (iframe), keys only arrive while the game has focus.
+  // Any click or tap on the game area takes focus back, so the keyboard keeps working.
+  gameEl.addEventListener('pointerdown', (e) => {
+    if (!(e.target instanceof HTMLButtonElement)) gameEl.focus({ preventScroll: true });
+  });
+  resize();
+
+  // ===== HUD (only touch the DOM when a value actually changes) =====
+  const hud = (() => {
+    const cache = {};
+    const el = { score: $('#hud-score'), lives: $('#hud-lives'), best: $('#hud-best') };
+    return {
+      set(key, value) {
+        if (cache[key] === value) return;
+        cache[key] = value; el[key].textContent = value;
+      },
+    };
+  })();
+
+  // ===== STATE MACHINE =====
+  const State = { MENU: 'menu', STORY: 'story', PLAYING: 'playing', PAUSED: 'paused', OVER: 'over' };
+  let state = State.MENU;
+  function setState(next) {
+    state = next;
+    screens.menu.hidden = next !== State.MENU;
+    screens.story.hidden = next !== State.STORY;
+    screens.paused.hidden = next !== State.PAUSED;
+    screens.over.hidden = next !== State.OVER;
+    $('#hud').hidden = !(next === State.PLAYING || next === State.PAUSED);
+    if (next === State.PLAYING) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      try { window.focus(); } catch (_) {}
+      gameEl.focus({ preventScroll: true });
+    } else {
+      const btn = { menu: '#btn-start', story: '#btn-story', paused: '#btn-resume',
+        over: $('#btn-retry').hidden ? '#btn-restart' : '#btn-retry' }[next];
+      if (btn) $(btn).focus({ preventScroll: true });
+    }
+  }
+
+  function startGame() {
+    audio.unlock(); input.clear();
+    game = newGame(); S = null; sfx.start();
+    hud.set('best', best);
+    openStory();
+  }
+  function pauseGame() { if (state === State.PLAYING) setState(State.PAUSED); }
+  function resumeGame() { if (state === State.PAUSED) { input.clear(); setState(State.PLAYING); } }
+  function endGame(won) {
+    if (state === State.OVER) return;
+    if (won) game.score += Math.floor(game.food / 4) + game.hp * 3; // bonus for supplies and health left
+    const isNew = game.score > best;
+    if (isNew) { best = game.score; store.set('best', best); }
+    const st = game.stats;
+    $('#over-title').textContent = won ? 'CAIRO, ILLINOIS!' : 'Game Over';
+    $('#over-stats').textContent = won
+      ? `Jim is free. Fibs told: ${st.fibs} · Foes beaten: ${st.foes} · Food left: ${Math.round(game.food)}`
+      : `Stopped at ${STAGES[game.stage].name}. Fibs told: ${st.fibs} · Foes beaten: ${st.foes}`;
+    $('#over-title').style.fontSize = won ? 'clamp(20px, 5vw, 38px)' : '';
+    $('#btn-retry').hidden = won;
+    $('#over-score').textContent = game.score;
+    $('#over-best').textContent = best;
+    $('#over-new').hidden = !isNew;
+    $('#menu-best').textContent = best;
+    if (won) sfx.win(); else sfx.over();
+    setState(State.OVER);
+  }
+
+  // Keys that act immediately regardless of the simulation step.
+  function onCommandKey(code) {
+    if (code === 'Enter' && state === State.MENU) startGame();
+    else if (code === 'Enter' && state === State.OVER) { if ($('#btn-retry').hidden) startGame(); else retryStage(); }
+    else if (code === 'Enter' && state === State.STORY) continueStory();
+    else if (code === 'KeyP' || code === 'Escape') {
+      if (state === State.PLAYING) pauseGame(); else if (state === State.PAUSED) resumeGame();
+    }
+  }
+
+  $('#btn-start').addEventListener('click', startGame);
+  $('#btn-restart').addEventListener('click', startGame);
+  $('#btn-retry').addEventListener('click', retryStage);
+  $('#btn-story').addEventListener('click', continueStory);
+  $('#btn-resume').addEventListener('click', resumeGame);
+  $('#btn-quit').addEventListener('click', () => setState(State.MENU));
+  $('#btn-menu').addEventListener('click', () => setState(State.MENU));
+  $('#btn-pause').addEventListener('click', pauseGame);
+  const muteBtn = $('#btn-mute');
+  const paintMute = () => { muteBtn.textContent = audio.muted ? '🔇' : '🔊'; };
+  muteBtn.addEventListener('click', () => { audio.unlock(); audio.toggle(); paintMute(); muteBtn.blur(); });
+  paintMute();
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+  $('#menu-best').textContent = best;
+
+/*__GAME__*/
+
+  // ===== UTILITIES =====
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
+  function circleHit(a, b) { const dx = a.x - b.x, dy = a.y - b.y, r = a.r + b.r; return dx * dx + dy * dy < r * r; }
+
+  // ===== MAIN LOOP (fixed timestep: identical game speed at 30, 60 or 144 Hz) =====
+  let rafId = 0, last = performance.now(), acc = 0;
+  function frame(now) {
+    rafId = requestAnimationFrame(frame);
+    try {
+      let dt = (now - last) / 1000; last = now;
+      if (!(dt > 0)) dt = 0; else if (dt > MAX_FRAME) dt = MAX_FRAME;
+      if (state === State.PLAYING) {
+        acc += dt;
+        while (acc >= STEP && state === State.PLAYING) { update(STEP); acc -= STEP; }
+      } else acc = 0;
+      render();
+    } catch (err) {
+      window.__showCrash(err); // stops the loop via __onCrash below and shows the overlay
+    }
+  }
+  window.__onCrash = () => cancelAnimationFrame(rafId);
+  $('#debug-resume').addEventListener('click', () => {
+    $('#debug').hidden = true; last = performance.now(); acc = 0;
+    rafId = requestAnimationFrame(frame);
+  });
+  $('#debug-reload').addEventListener('click', () => location.reload());
+
+  setState(State.MENU);
+  rafId = requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
